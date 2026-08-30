@@ -2,7 +2,10 @@ const request = require("supertest");
 const app = require("../src/app");
 const prisma = require("../src/utils/prisma");
 
+jest.setTimeout(30000);
+
 describe("CampusConnect API Integration Tests", () => {
+
   let studentToken = "";
   let studentUser = null;
   let organizerToken = "";

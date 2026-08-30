@@ -29,7 +29,7 @@ const getEventById = async (req, res, next) => {
 
 const createEvent = async (req, res, next) => {
   try {
-    const event = await eventService.createEvent(req.body, req.user.id);
+    const event = await eventService.createEvent(req.body, req.user.id, req.file);
     res.status(201).json({
       success: true,
       message: "Event created successfully.",
@@ -43,7 +43,7 @@ const createEvent = async (req, res, next) => {
 const updateEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const updated = await eventService.updateEvent(id, req.body, req.user);
+    const updated = await eventService.updateEvent(id, req.body, req.user, req.file);
     res.status(200).json({
       success: true,
       message: "Event updated successfully.",
@@ -53,6 +53,7 @@ const updateEvent = async (req, res, next) => {
     next(error);
   }
 };
+
 
 const deleteEvent = async (req, res, next) => {
   try {

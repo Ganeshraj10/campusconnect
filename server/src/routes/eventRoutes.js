@@ -5,6 +5,7 @@ const registrationController = require("../controllers/registrationController");
 const organizerController = require("../controllers/organizerController");
 const { authenticate, requireRole } = require("../middleware/authMiddleware");
 const { validateEventCreation } = require("../middleware/validateMiddleware");
+const { uploadPoster } = require("../middleware/uploadMiddleware");
 
 // Public browsing
 router.get("/", eventController.getEvents);
@@ -15,6 +16,7 @@ router.post(
   "/",
   authenticate,
   requireRole("ORGANIZER", "ADMIN"),
+  uploadPoster,
   validateEventCreation,
   eventController.createEvent
 );
@@ -22,8 +24,10 @@ router.put(
   "/:id",
   authenticate,
   requireRole("ORGANIZER", "ADMIN"),
+  uploadPoster,
   eventController.updateEvent
 );
+
 router.delete(
   "/:id",
   authenticate,

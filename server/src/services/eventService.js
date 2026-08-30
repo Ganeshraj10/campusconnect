@@ -1,5 +1,53 @@
 const prisma = require("../utils/prisma");
 const { createNotification } = require("./notificationService");
+const {
+  uploadEventPoster,
+  deleteEventPoster,
+  getPresignedPosterUrl
+} = require("./s3Service");
+
+/**
+ * Enriches a single event object with presigned poster URL and standardized fields
+ */
+const formatEventWithPoster = async (event) => {
+  if (!event) return null;
+  const posterUrl = await getPresignedPosterUrl(event.posterKey);
+  return {
+    ...event,
+    posterKey: event.posterKey || null,
+    posterUrl: posterUrl || null,
+    poster: posterUrl || event.posterKey || null
+  };
+};
+
+/**
+ * Enriches an array of event objects with presigned poster URLs concurrently
+ */
+const formatEventsWithPosters = async (events) => {
+  if (!Array.isArray(events)) return [];
+  return Promise.all(events.map((e) => formatEventWithPoster(e)));
+};
+
+/**
+ * Helper to normalize rules field from multipart form-data or JSON payload
+ */
+const parseRules = (rules) => {
+  if (!rules) return [];
+  if (Array.isArray(rules)) return rules;
+  if (typeof rules === "string") {
+    try {
+      const parsed = JSON.parse(rules);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      // If comma or newline separated string
+      return rules
+        .split(/\r?\n|,/)
+        .map((r) => r.trim())
+        .filter((r) => r.length > 0);
+    }
+  }
+  return [];
+};
 
 const getAllEvents = async ({ category, search, status }) => {
   const where = {};
@@ -32,7 +80,7 @@ const getAllEvents = async ({ category, search, status }) => {
     ];
   }
 
-  return prisma.event.findMany({
+  const events = await prisma.event.findMany({
     where,
     include: {
       organizer: {
@@ -53,6 +101,8 @@ const getAllEvents = async ({ category, search, status }) => {
     },
     orderBy: { createdAt: "desc" }
   });
+
+  return formatEventsWithPosters(events);
 };
 
 const getEventById = async (id) => {
@@ -83,15 +133,16 @@ const getEventById = async (id) => {
     throw error;
   }
 
-  return event;
+  return formatEventWithPoster(event);
 };
 
-const createEvent = async (eventData, organizerId) => {
-  const {
+const createEvent = async (eventData, organizerId, file = null) => {
+  let {
     name,
     description,
     category,
     posterKey,
+    poster,
     date,
     startTime,
     endTime,
@@ -102,6 +153,15 @@ const createEvent = async (eventData, organizerId) => {
     rules,
     status
   } = eventData;
+
+  // Handle uploaded image file via S3
+  if (file) {
+    posterKey = await uploadEventPoster(file);
+  } else {
+    posterKey = posterKey || poster || null;
+  }
+
+  const parsedRules = parseRules(rules);
 
   const event = await prisma.event.create({
     data: {
@@ -118,7 +178,7 @@ const createEvent = async (eventData, organizerId) => {
       registeredCount: 0,
       registrationDeadline: registrationDeadline || date,
       status: status ? status.toUpperCase() : "UPCOMING",
-      rules: Array.isArray(rules) ? rules : [],
+      rules: parsedRules,
       organizerId
     },
     include: {
@@ -133,10 +193,10 @@ const createEvent = async (eventData, organizerId) => {
     }
   });
 
-  return event;
+  return formatEventWithPoster(event);
 };
 
-const updateEvent = async (id, updateData, user) => {
+const updateEvent = async (id, updateData, user, file = null) => {
   const event = await prisma.event.findUnique({ where: { id } });
 
   if (!event) {
@@ -153,11 +213,38 @@ const updateEvent = async (id, updateData, user) => {
   }
 
   const data = { ...updateData };
+
+  // Handle new poster file upload to S3
+  if (file) {
+    // Delete old poster from S3 if it exists
+    if (event.posterKey) {
+      await deleteEventPoster(event.posterKey);
+    }
+    data.posterKey = await uploadEventPoster(file);
+  } else if (
+    data.posterKey === null ||
+    data.removePoster === true ||
+    data.removePoster === "true"
+  ) {
+    if (event.posterKey) {
+      await deleteEventPoster(event.posterKey);
+    }
+    data.posterKey = null;
+  } else if (data.poster && !data.posterKey) {
+    data.posterKey = data.poster;
+  }
+
+  delete data.removePoster;
+  delete data.poster;
+
   if (data.capacity !== undefined) {
     data.capacity = Number(data.capacity);
   }
   if (data.status) {
     data.status = data.status.toUpperCase();
+  }
+  if (data.rules !== undefined) {
+    data.rules = parseRules(data.rules);
   }
 
   const updated = await prisma.event.update({
@@ -175,7 +262,7 @@ const updateEvent = async (id, updateData, user) => {
     }
   });
 
-  return updated;
+  return formatEventWithPoster(updated);
 };
 
 const deleteEvent = async (id, user) => {
@@ -194,12 +281,17 @@ const deleteEvent = async (id, user) => {
     throw error;
   }
 
+  // Delete event poster from S3 if present
+  if (event.posterKey) {
+    await deleteEventPoster(event.posterKey);
+  }
+
   await prisma.event.delete({ where: { id } });
   return { success: true, message: "Event deleted successfully." };
 };
 
 const getOrganizerEvents = async (organizerId) => {
-  return prisma.event.findMany({
+  const events = await prisma.event.findMany({
     where: { organizerId },
     include: {
       _count: {
@@ -212,10 +304,12 @@ const getOrganizerEvents = async (organizerId) => {
     },
     orderBy: { createdAt: "desc" }
   });
+
+  return formatEventsWithPosters(events);
 };
 
 const getPendingEvents = async () => {
-  return prisma.event.findMany({
+  const events = await prisma.event.findMany({
     where: { status: "PENDING" },
     include: {
       organizer: {
@@ -229,6 +323,8 @@ const getPendingEvents = async () => {
     },
     orderBy: { createdAt: "asc" }
   });
+
+  return formatEventsWithPosters(events);
 };
 
 const approveEvent = async (id) => {
@@ -251,7 +347,7 @@ const approveEvent = async (id) => {
     message: `Your event "${event.name}" has been approved by the Administration.`
   });
 
-  return updated;
+  return formatEventWithPoster(updated);
 };
 
 const rejectEvent = async (id) => {
@@ -274,7 +370,7 @@ const rejectEvent = async (id) => {
     message: `Your event "${event.name}" was not approved by the Administration.`
   });
 
-  return updated;
+  return formatEventWithPoster(updated);
 };
 
 const getEventParticipants = async (eventId, user) => {
@@ -352,5 +448,7 @@ module.exports = {
   approveEvent,
   rejectEvent,
   getEventParticipants,
-  markAttendance
+  markAttendance,
+  formatEventWithPoster,
+  formatEventsWithPosters
 };

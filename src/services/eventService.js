@@ -11,6 +11,7 @@ const formatEvent = (event) => {
   return {
     ...event,
     poster:
+      event.posterUrl ||
       event.posterKey ||
       event.poster ||
       "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=800&q=80",
@@ -25,6 +26,7 @@ const formatEvent = (event) => {
     rules: Array.isArray(event.rules) ? event.rules : []
   };
 };
+
 
 export const eventService = {
   // GET /api/events
@@ -187,6 +189,13 @@ export const eventService = {
 
   // POST /api/events (Organizer)
   createEvent: async (eventData) => {
+    if (typeof FormData !== "undefined" && eventData instanceof FormData) {
+      const res = await api.post("/events", eventData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      return formatEvent(res.data?.data || res.data);
+    }
+
     const payload = {
       name: eventData.name,
       description: eventData.description,
@@ -208,11 +217,19 @@ export const eventService = {
 
   // PUT /api/events/:id (Organizer / Admin)
   updateEvent: async (id, updatedFields) => {
+    if (typeof FormData !== "undefined" && updatedFields instanceof FormData) {
+      const res = await api.put(`/events/${id}`, updatedFields, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      return formatEvent(res.data?.data || res.data);
+    }
+
     const payload = { ...updatedFields };
     if (payload.poster) payload.posterKey = payload.poster;
     const res = await api.put(`/events/${id}`, payload);
     return formatEvent(res.data?.data || res.data);
   },
+
 
   // DELETE /api/events/:id or PUT /api/events/:id with CANCELLED
   cancelEvent: async (id) => {

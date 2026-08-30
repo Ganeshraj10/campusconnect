@@ -1,5 +1,6 @@
 const prisma = require("../utils/prisma");
 const { createNotification } = require("./notificationService");
+const { getPresignedPosterUrl } = require("./s3Service");
 
 const registerForEvent = async (eventId, userId, regData = {}) => {
   const { teamName, teamMembers } = regData;
@@ -191,19 +192,28 @@ const getMyEvents = async (userId) => {
     orderBy: { registeredAt: "desc" }
   });
 
-  return registrations.map((reg) => ({
-    registrationId: reg.id,
-    registeredAt: reg.registeredAt,
-    status: reg.status,
-    teamName: reg.teamName,
-    teamMembers: reg.teamMembers,
-    attended: reg.attendance?.attended || false,
-    event: {
-      ...reg.event,
-      availableSeats: Math.max(0, reg.event.capacity - reg.event.registeredCount)
-    }
-  }));
+  return Promise.all(
+    registrations.map(async (reg) => {
+      const posterUrl = await getPresignedPosterUrl(reg.event.posterKey);
+      return {
+        registrationId: reg.id,
+        registeredAt: reg.registeredAt,
+        status: reg.status,
+        teamName: reg.teamName,
+        teamMembers: reg.teamMembers,
+        attended: reg.attendance?.attended || false,
+        event: {
+          ...reg.event,
+          posterKey: reg.event.posterKey || null,
+          posterUrl: posterUrl || null,
+          poster: posterUrl || reg.event.posterKey || null,
+          availableSeats: Math.max(0, reg.event.capacity - reg.event.registeredCount)
+        }
+      };
+    })
+  );
 };
+
 
 module.exports = {
   registerForEvent,
