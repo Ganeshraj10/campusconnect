@@ -45,7 +45,10 @@ export default function MyEventsPage() {
     if (!cancelModalData) return;
     setCancellingId(cancelModalData.registrationId);
     try {
-      await eventService.cancelRegistration(cancelModalData.registrationId);
+      await eventService.cancelRegistration(
+        cancelModalData.registrationId,
+        cancelModalData.event?.id
+      );
       setCancelModalData(null);
       await fetchMyEvents();
     } catch (err) {

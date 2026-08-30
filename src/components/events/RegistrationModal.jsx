@@ -14,12 +14,12 @@ export default function RegistrationModal({ event, isOpen, onClose, onSuccess })
     event.teamSize.toLowerCase() !== "1 member";
 
   const [formData, setFormData] = useState({
-    name: "",
-    registerNumber: "",
-    email: "",
-    phone: "",
-    department: "",
-    year: "3rd Year",
+    name: currentUser?.name || "Alex Johnson",
+    registerNumber: currentUser?.registerNumber || "2023CSE042",
+    email: currentUser?.email || "alex.j@college.edu",
+    phone: currentUser?.phone || "9876543210",
+    department: currentUser?.department || "Computer Science & Engineering",
+    year: currentUser?.year || "3rd Year",
     teamName: "",
     teamMembers: ""
   });
@@ -33,15 +33,16 @@ export default function RegistrationModal({ event, isOpen, onClose, onSuccess })
     if (currentUser) {
       setFormData((prev) => ({
         ...prev,
-        name: currentUser.name || "Alex Johnson",
-        registerNumber: currentUser.registerNumber || "2023CSE042",
-        email: currentUser.email || "alex.j@college.edu",
-        phone: currentUser.phone || "9876543210",
-        department: currentUser.department || "Computer Science & Engineering",
-        year: currentUser.year || "3rd Year"
+        name: currentUser.name || prev.name || "Alex Johnson",
+        registerNumber: currentUser.registerNumber || prev.registerNumber || "2023CSE042",
+        email: currentUser.email || prev.email || "alex.j@college.edu",
+        phone: currentUser.phone || prev.phone || "9876543210",
+        department: currentUser.department || prev.department || "Computer Science & Engineering",
+        year: currentUser.year || prev.year || "3rd Year"
       }));
     }
   }, [currentUser, isOpen]);
+
 
   if (!isOpen || !event) return null;
 

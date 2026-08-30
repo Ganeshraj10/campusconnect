@@ -6,13 +6,22 @@ import { GraduationCap, UserCheck, ShieldCheck, ArrowRight, User } from "lucide-
 export default function LoginPage() {
   const { switchRole, role, currentUser, demoAccounts } = useAuth();
   const navigate = useNavigate();
+  const [switchingRole, setSwitchingRole] = React.useState(null);
 
-  const handleSelectRole = (roleName) => {
-    switchRole(roleName);
-    if (roleName === "Student") navigate("/dashboard");
-    else if (roleName === "Organizer") navigate("/organizer/dashboard");
-    else if (roleName === "Admin") navigate("/admin/dashboard");
+  const handleSelectRole = async (roleName) => {
+    try {
+      setSwitchingRole(roleName);
+      await switchRole(roleName);
+      if (roleName === "Student") navigate("/dashboard");
+      else if (roleName === "Organizer") navigate("/organizer/dashboard");
+      else if (roleName === "Admin") navigate("/admin/dashboard");
+    } catch (err) {
+      console.error("Failed to switch role:", err);
+    } finally {
+      setSwitchingRole(null);
+    }
   };
+
 
   const rolesList = [
     {

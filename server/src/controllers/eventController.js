@@ -1,0 +1,76 @@
+const eventService = require("../services/eventService");
+
+const getEvents = async (req, res, next) => {
+  try {
+    const { category, search, status } = req.query;
+    const events = await eventService.getAllEvents({ category, search, status });
+    res.status(200).json({
+      success: true,
+      count: events.length,
+      data: events
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getEventById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const event = await eventService.getEventById(id);
+    res.status(200).json({
+      success: true,
+      data: event
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const createEvent = async (req, res, next) => {
+  try {
+    const event = await eventService.createEvent(req.body, req.user.id);
+    res.status(201).json({
+      success: true,
+      message: "Event created successfully.",
+      data: event
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateEvent = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updated = await eventService.updateEvent(id, req.body, req.user);
+    res.status(200).json({
+      success: true,
+      message: "Event updated successfully.",
+      data: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteEvent = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await eventService.deleteEvent(id, req.user);
+    res.status(200).json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  getEvents,
+  getEventById,
+  createEvent,
+  updateEvent,
+  deleteEvent
+};

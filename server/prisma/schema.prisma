@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  ORGANIZER
+  ADMIN
+}
+
+enum EventStatus {
+  UPCOMING
+  FULL
+  CLOSED
+  CANCELLED
+  PENDING
+  REJECTED
+  COMPLETED
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  password       String
+  registerNumber String?
+  phone          String?
+  department     String?
+  year           String?
+  role           Role           @default(STUDENT)
+  createdAt      DateTime       @default(now())
+
+  // Relationships
+  events         Event[]        @relation("OrganizerEvents")
+  registrations  Registration[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Event {
+  id                   String         @id @default(cuid())
+  name                 String
+  description          String
+  category             String
+  organizerId          String
+  posterKey            String?
+  date                 String
+  startTime            String
+  endTime              String
+  venue                String
+  teamSize             String         @default("Individual")
+  capacity             Int
+  registeredCount      Int            @default(0)
+  registrationDeadline String
+  status               EventStatus    @default(UPCOMING)
+  rules                String[]       @default([])
+  createdAt            DateTime       @default(now())
+
+  // Relationships
+  organizer            User           @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
+  registrations        Registration[]
+  notifications        Notification[]
+
+  @@map("events")
+}
+
+model Registration {
+  id           String             @id @default(cuid())
+  userId       String
+  eventId      String
+  teamName     String?
+  teamMembers  String?
+  registeredAt DateTime           @default(now())
+  status       RegistrationStatus @default(CONFIRMED)
+
+  // Relationships
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event        Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  attendance   Attendance?
+
+  @@unique([userId, eventId])
+  @@map("registrations")
+}
+
+model Attendance {
+  id             String       @id @default(cuid())
+  registrationId String       @unique
+  attended       Boolean      @default(false)
+  markedAt       DateTime?
+
+  // Relationships
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@map("attendances")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String?
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relationships
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}

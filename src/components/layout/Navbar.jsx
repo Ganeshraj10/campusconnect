@@ -20,12 +20,16 @@ export default function Navbar() {
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const navigate = useNavigate();
 
-  const handleRoleChange = (newRole) => {
-    switchRole(newRole);
-    setRoleDropdownOpen(false);
-    if (newRole === "Student") navigate("/dashboard");
-    else if (newRole === "Organizer") navigate("/organizer/dashboard");
-    else if (newRole === "Admin") navigate("/admin/dashboard");
+  const handleRoleChange = async (newRole) => {
+    try {
+      await switchRole(newRole);
+      setRoleDropdownOpen(false);
+      if (newRole === "Student") navigate("/dashboard");
+      else if (newRole === "Organizer") navigate("/organizer/dashboard");
+      else if (newRole === "Admin") navigate("/admin/dashboard");
+    } catch (err) {
+      console.error("Failed to switch role:", err);
+    }
   };
 
   const navLinkClass = ({ isActive }) =>
