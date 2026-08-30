@@ -24,29 +24,19 @@ export const AuthProvider = ({ children }) => {
           const profile = await authService.getMe();
           setCurrentUser(profile);
         } catch (err) {
-          console.warn("Failed to fetch current user profile with token, renewing demo session:", err.message);
-          try {
-            const user = await authService.switchRole("Student");
-            setCurrentUser(user);
-          } catch (loginErr) {
-            console.error("Auto login error:", loginErr);
-          }
+          console.warn("Failed to fetch current user profile with token:", err.message);
+          authService.logout();
+          setCurrentUser(null);
         }
       } else {
-        // Auto-login to Student demo account so initial visitor has a valid JWT
-        try {
-          const user = await authService.switchRole("Student");
-          setCurrentUser(user);
-        } catch (err) {
-          console.warn("Failed to auto-login demo student:", err.message);
-        }
+        const storedUser = authService.getCurrentUser();
+        setCurrentUser(storedUser);
       }
       setLoading(false);
     };
 
     initAuth();
   }, []);
-
 
   const switchRole = async (roleName) => {
     const updated = await authService.switchRole(roleName);
@@ -56,6 +46,12 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     const result = await authService.login(email, password);
+    setCurrentUser(result.user);
+    return result;
+  };
+
+  const register = async (userData) => {
+    const result = await authService.register(userData);
     setCurrentUser(result.user);
     return result;
   };
@@ -79,6 +75,7 @@ export const AuthProvider = ({ children }) => {
         role: normalizedRole,
         loading,
         login,
+        register,
         switchRole,
         loginAs,
         logout,
@@ -89,6 +86,7 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

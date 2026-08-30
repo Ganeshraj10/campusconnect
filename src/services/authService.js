@@ -43,8 +43,9 @@ export const authService = {
     } catch (e) {
       console.error("Failed to load user from localStorage", e);
     }
-    return DEMO_CREDENTIALS.Student;
+    return null;
   },
+
 
   setCurrentUser: (user) => {
     if (user) {
