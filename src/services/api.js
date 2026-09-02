@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Normalize API base URL from VITE_API_URL
-const rawBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const rawBaseUrl = import.meta.env.VITE_API_URL || "http://13.211.190.78:5000";
 const trimmedBaseUrl = rawBaseUrl.replace(/\/$/, "");
 export const API_BASE_URL = trimmedBaseUrl.endsWith("/api")
   ? trimmedBaseUrl

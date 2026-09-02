@@ -1,6 +1,7 @@
 const prisma = require("../utils/prisma");
 const { createNotification } = require("./notificationService");
 const { getPresignedPosterUrl } = require("./s3Service");
+const logger = require("../utils/logger");
 
 const registerForEvent = async (eventId, userId, regData = {}) => {
   const { teamName, teamMembers } = regData;
@@ -12,6 +13,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
     });
 
     if (!event) {
+      logger.warn(`Event registration failed: Event ID ${eventId} not found.`);
       const error = new Error("Event not found.");
       error.statusCode = 404;
       throw error;
@@ -19,6 +21,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
 
     // Business Rule 4: Check if event is active
     if (["CANCELLED", "REJECTED", "PENDING"].includes(event.status)) {
+      logger.warn(`Event registration rejected: Event "${event.name}" (${eventId}) is currently ${event.status.toLowerCase()}.`);
       const error = new Error(`Cannot register for this event. Event is currently ${event.status.toLowerCase()}.`);
       error.statusCode = 400;
       throw error;
@@ -26,6 +29,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
 
     // Business Rule 3: Check capacity
     if (event.registeredCount >= event.capacity || event.status === "FULL") {
+      logger.warn(`Event registration rejected: Event "${event.name}" (${eventId}) is at maximum capacity.`);
       const error = new Error("Registration is closed: This event has reached maximum capacity.");
       error.statusCode = 400;
       throw error;
@@ -38,6 +42,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
       // Set deadline end of day
       deadline.setHours(23, 59, 59, 999);
       if (now > deadline) {
+        logger.warn(`Event registration rejected: Deadline has passed for event "${event.name}" (${eventId}).`);
         const error = new Error("Registration is closed: The registration deadline has passed.");
         error.statusCode = 400;
         throw error;
@@ -56,6 +61,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
 
     if (existingRegistration) {
       if (existingRegistration.status === "CONFIRMED") {
+        logger.warn(`Event registration rejected: User ID ${userId} is already registered for Event "${event.name}" (${eventId}).`);
         const error = new Error("You are already registered for this event.");
         error.statusCode = 400;
         throw error;
@@ -82,6 +88,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
         }
       });
 
+      logger.info(`Event registration re-activated: User ID ${userId} for Event "${event.name}" (ID: ${eventId}, Reg ID: ${updatedReg.id})`);
       return updatedReg;
     }
 
@@ -124,6 +131,7 @@ const registerForEvent = async (eventId, userId, regData = {}) => {
       }
     });
 
+    logger.info(`Event registration confirmed: User ID ${userId} registered for Event "${event.name}" (ID: ${eventId}, Reg ID: ${registration.id})`);
     return registration;
   });
 };
@@ -140,6 +148,7 @@ const cancelRegistration = async (eventId, userId) => {
     });
 
     if (!registration || registration.status !== "CONFIRMED") {
+      logger.warn(`Event cancellation failed: No active registration for User ID ${userId} on Event ID ${eventId}.`);
       const error = new Error("Active registration record not found for this event.");
       error.statusCode = 404;
       throw error;
@@ -164,12 +173,14 @@ const cancelRegistration = async (eventId, userId) => {
       });
     }
 
+    logger.info(`Event registration cancelled: User ID ${userId} cancelled registration for Event ID ${eventId} (Reg ID: ${registration.id})`);
     return {
       success: true,
       message: "Registration cancelled successfully. Your seat has been released."
     };
   });
 };
+
 
 const getMyEvents = async (userId) => {
   const registrations = await prisma.registration.findMany({

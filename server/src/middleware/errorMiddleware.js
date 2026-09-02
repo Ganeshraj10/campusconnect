@@ -1,14 +1,19 @@
+const logger = require("../utils/logger");
+
 const notFound = (req, res, next) => {
   const error = new Error(`Resource Not Found - ${req.originalUrl}`);
   res.status(404);
+  logger.warn(`Resource Not Found: ${req.method} ${req.originalUrl}`);
   next(error);
 };
 
 const errorHandler = (err, req, res, next) => {
   const statusCode = err.statusCode || (res.statusCode !== 200 ? res.statusCode : 500);
 
-  if (process.env.NODE_ENV !== "test") {
-    console.error(`[Error] ${req.method} ${req.originalUrl}:`, err.message);
+  if (statusCode >= 500) {
+    logger.error(`API Error: ${req.method} ${req.originalUrl} [Status ${statusCode}] - ${err.message}`, err);
+  } else {
+    logger.warn(`API Client Error: ${req.method} ${req.originalUrl} [Status ${statusCode}] - ${err.message}`);
   }
 
   res.status(statusCode).json({
@@ -22,3 +27,4 @@ module.exports = {
   notFound,
   errorHandler
 };
+

@@ -5,6 +5,7 @@ const {
   deleteEventPoster,
   getPresignedPosterUrl
 } = require("./s3Service");
+const logger = require("../utils/logger");
 
 /**
  * Enriches a single event object with presigned poster URL and standardized fields
@@ -193,6 +194,7 @@ const createEvent = async (eventData, organizerId, file = null) => {
     }
   });
 
+  logger.info(`Event created: "${event.name}" (ID: ${event.id}) by Organizer ID: ${organizerId}`);
   return formatEventWithPoster(event);
 };
 
@@ -200,6 +202,7 @@ const updateEvent = async (id, updateData, user, file = null) => {
   const event = await prisma.event.findUnique({ where: { id } });
 
   if (!event) {
+    logger.warn(`Event update failed: Event ID ${id} not found.`);
     const error = new Error("Event not found.");
     error.statusCode = 404;
     throw error;
@@ -207,6 +210,7 @@ const updateEvent = async (id, updateData, user, file = null) => {
 
   // Only the organizer who created the event or an Admin can edit it
   if (user.role !== "ADMIN" && event.organizerId !== user.id) {
+    logger.warn(`Event update forbidden: User ${user.id} (${user.role}) is not authorized to edit event ${id}.`);
     const error = new Error("Forbidden: You can only edit events you organized.");
     error.statusCode = 403;
     throw error;
@@ -262,6 +266,7 @@ const updateEvent = async (id, updateData, user, file = null) => {
     }
   });
 
+  logger.info(`Event updated: "${updated.name}" (ID: ${id}) by User ID: ${user.id} (Role: ${user.role})`);
   return formatEventWithPoster(updated);
 };
 
@@ -269,6 +274,7 @@ const deleteEvent = async (id, user) => {
   const event = await prisma.event.findUnique({ where: { id } });
 
   if (!event) {
+    logger.warn(`Event deletion failed: Event ID ${id} not found.`);
     const error = new Error("Event not found.");
     error.statusCode = 404;
     throw error;
@@ -276,6 +282,7 @@ const deleteEvent = async (id, user) => {
 
   // Only the creator or Admin can delete
   if (user.role !== "ADMIN" && event.organizerId !== user.id) {
+    logger.warn(`Event deletion forbidden: User ${user.id} (${user.role}) is not authorized to delete event ${id}.`);
     const error = new Error("Forbidden: You can only delete events you organized.");
     error.statusCode = 403;
     throw error;
@@ -287,6 +294,7 @@ const deleteEvent = async (id, user) => {
   }
 
   await prisma.event.delete({ where: { id } });
+  logger.info(`Event deleted: "${event.name}" (ID: ${id}) by User ID: ${user.id} (Role: ${user.role})`);
   return { success: true, message: "Event deleted successfully." };
 };
 
@@ -330,6 +338,7 @@ const getPendingEvents = async () => {
 const approveEvent = async (id) => {
   const event = await prisma.event.findUnique({ where: { id } });
   if (!event) {
+    logger.warn(`Event approval failed: Event ID ${id} not found.`);
     const error = new Error("Event not found.");
     error.statusCode = 404;
     throw error;
@@ -347,12 +356,14 @@ const approveEvent = async (id) => {
     message: `Your event "${event.name}" has been approved by the Administration.`
   });
 
+  logger.info(`Event approved: "${event.name}" (ID: ${id}) by Admin`);
   return formatEventWithPoster(updated);
 };
 
 const rejectEvent = async (id) => {
   const event = await prisma.event.findUnique({ where: { id } });
   if (!event) {
+    logger.warn(`Event rejection failed: Event ID ${id} not found.`);
     const error = new Error("Event not found.");
     error.statusCode = 404;
     throw error;
@@ -370,8 +381,10 @@ const rejectEvent = async (id) => {
     message: `Your event "${event.name}" was not approved by the Administration.`
   });
 
+  logger.info(`Event rejected: "${event.name}" (ID: ${id}) by Admin`);
   return formatEventWithPoster(updated);
 };
+
 
 const getEventParticipants = async (eventId, user) => {
   const event = await prisma.event.findUnique({ where: { id: eventId } });

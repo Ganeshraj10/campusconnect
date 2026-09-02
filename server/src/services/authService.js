@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const prisma = require("../utils/prisma");
 const { generateToken } = require("../utils/jwt");
+const logger = require("../utils/logger");
 
 const register = async (userData) => {
   const { name, email, password, role, registerNumber, department, year, phone } = userData;
@@ -10,6 +11,7 @@ const register = async (userData) => {
   });
 
   if (existingUser) {
+    logger.warn(`Registration rejected: User with email "${email}" already exists.`);
     const error = new Error("A user with this email address already exists.");
     error.statusCode = 400;
     throw error;
@@ -48,6 +50,7 @@ const register = async (userData) => {
 
   const token = generateToken({ id: user.id, email: user.email, role: user.role });
 
+  logger.info(`User registered successfully: ${user.email} (Role: ${user.role}, ID: ${user.id})`);
   return { user, token };
 };
 
@@ -57,6 +60,7 @@ const login = async (email, password) => {
   });
 
   if (!user) {
+    logger.warn(`Login failed: Account not found for email "${email}".`);
     const error = new Error("Invalid email or password.");
     error.statusCode = 401;
     throw error;
@@ -64,6 +68,7 @@ const login = async (email, password) => {
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
+    logger.warn(`Login failed: Incorrect password for email "${email}".`);
     const error = new Error("Invalid email or password.");
     error.statusCode = 401;
     throw error;
@@ -83,8 +88,11 @@ const login = async (email, password) => {
     createdAt: user.createdAt
   };
 
+  logger.info(`User login successful: ${user.email} (Role: ${user.role}, ID: ${user.id})`);
   return { user: safeUser, token };
 };
+
+
 
 const getProfile = async (userId) => {
   const user = await prisma.user.findUnique({
