@@ -1,14 +1,14 @@
 const jwt = require("jsonwebtoken");
 
-const JWT_SECRET = process.env.JWT_SECRET || "campusconnect_super_secret_jwt_key_2026";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+const getSecret = () => process.env.JWT_SECRET || "campusconnect_super_secret_jwt_key_2026";
+const getExpiresIn = () => process.env.JWT_EXPIRES_IN || "7d";
 
 const generateToken = (payload) => {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign(payload, getSecret(), { expiresIn: getExpiresIn() });
 };
 
 const verifyToken = (token) => {
-  return jwt.verify(token, JWT_SECRET);
+  return jwt.verify(token, getSecret());
 };
 
 module.exports = {
