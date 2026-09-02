@@ -11,31 +11,74 @@ const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 const app = express();
 
 // Middlewares
-const rawCorsOrigin =
-  process.env.CORS_ORIGIN ||
-  "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173";
-const allowedOrigins = rawCorsOrigin.split(",").map((o) => o.trim());
+const defaultAllowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173"
+];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g., mobile apps, curl, direct browser navigation)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
-        return callback(null, true);
-      }
-      // Allow local development server ports dynamically
-      if (
-        /^http:\/\/localhost:[0-9]+$/.test(origin) ||
-        /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(origin)
-      ) {
-        return callback(null, true);
-      }
-      return callback(new Error(`CORS policy does not allow access from origin: ${origin}`), false);
-    },
-    credentials: true
-  })
-);
+const envOrigins = [
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : []),
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [])
+]
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envOrigins]));
+
+// Regex to securely allow CampusConnect Vercel deployments (campusconnect.vercel.app & campusconnect-*.vercel.app)
+const campusConnectVercelPattern = /^https:\/\/campusconnect(-[a-z0-9_-]+)*\.vercel\.app$/i;
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // Direct requests / curl / mobile apps / server-to-server
+
+  const normalizedOrigin = origin.replace(/\/$/, "");
+
+  // 1. Match exact allowed origins list (from env or defaults)
+  if (allowedOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  // 2. Allow local development server ports dynamically (e.g., localhost:5173, 127.0.0.1:5174)
+  if (
+    /^http:\/\/localhost:[0-9]+$/.test(normalizedOrigin) ||
+    /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(normalizedOrigin)
+  ) {
+    return true;
+  }
+
+  // 3. Allow CampusConnect Vercel deployments (e.g. campusconnect-beta-sable.vercel.app, campusconnect-5vmv29j3l-team-2ab7.vercel.app)
+  if (campusConnectVercelPattern.test(normalizedOrigin)) {
+    return true;
+  }
+
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy does not allow access from origin: ${origin}`), false);
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin"
+  ],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
