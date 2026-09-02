@@ -1,11 +1,26 @@
 import axios from "axios";
 
-// Normalize API base URL from VITE_API_URL
-const rawBaseUrl = import.meta.env.VITE_API_URL || "http://13.211.190.78:5000";
-const trimmedBaseUrl = rawBaseUrl.replace(/\/$/, "");
-export const API_BASE_URL = trimmedBaseUrl.endsWith("/api")
-  ? trimmedBaseUrl
-  : `${trimmedBaseUrl}/api`;
+// Determine API base URL dynamically based on environment and VITE_API_URL
+const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+
+  // 1. If explicit VITE_API_URL is defined
+  if (envUrl && envUrl.trim() !== "") {
+    const trimmed = envUrl.trim().replace(/\/$/, "");
+    return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+  }
+
+  // 2. In production (e.g. Vercel deployment), default to relative "/api" to avoid HTTPS -> HTTP mixed-content
+  if (import.meta.env.PROD) {
+    return "/api";
+  }
+
+  // 3. In local development default to EC2 backend
+  return "http://13.211.190.78:5000/api";
+};
+
+export const API_BASE_URL = getApiBaseUrl();
+
 
 // Create configured Axios instance
 const api = axios.create({
