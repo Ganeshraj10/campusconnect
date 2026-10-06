@@ -190,9 +190,7 @@ export const eventService = {
   // POST /api/events (Organizer)
   createEvent: async (eventData) => {
     if (typeof FormData !== "undefined" && eventData instanceof FormData) {
-      const res = await api.post("/events", eventData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      const res = await api.post("/events", eventData);
       return formatEvent(res.data?.data || res.data);
     }
 
@@ -218,9 +216,7 @@ export const eventService = {
   // PUT /api/events/:id (Organizer / Admin)
   updateEvent: async (id, updatedFields) => {
     if (typeof FormData !== "undefined" && updatedFields instanceof FormData) {
-      const res = await api.put(`/events/${id}`, updatedFields, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      const res = await api.put(`/events/${id}`, updatedFields);
       return formatEvent(res.data?.data || res.data);
     }
 

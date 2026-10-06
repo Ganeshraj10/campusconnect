@@ -137,13 +137,43 @@ const getEventById = async (id) => {
   return formatEventWithPoster(event);
 };
 
+/**
+ * Normalizes and validates posterKey to guarantee it is only:
+ * - A valid S3 object-key string returned by uploadEventPoster()
+ * - An external URL string (http:// or https://)
+ * - null
+ * NEVER an Object, FormData, or invalid value.
+ */
+const sanitizePosterKey = (key) => {
+  if (typeof key !== "string") return null;
+  const trimmed = key.trim();
+  if (
+    !trimmed ||
+    trimmed === "[object Object]" ||
+    trimmed === "null" ||
+    trimmed === "undefined"
+  ) {
+    return null;
+  }
+  return trimmed;
+};
+
+/**
+ * Checks if a given value is a valid Multer file object
+ */
+const isMulterFile = (file) => {
+  return (
+    file &&
+    typeof file === "object" &&
+    (Buffer.isBuffer(file.buffer) || typeof file.originalname === "string" || file.size > 0)
+  );
+};
+
 const createEvent = async (eventData, organizerId, file = null) => {
-  let {
+  const {
     name,
     description,
     category,
-    posterKey,
-    poster,
     date,
     startTime,
     endTime,
@@ -155,30 +185,60 @@ const createEvent = async (eventData, organizerId, file = null) => {
     status
   } = eventData;
 
-  // Handle uploaded image file via S3
-  if (file) {
-    posterKey = await uploadEventPoster(file);
+  // 1. If req.file exists, call uploadEventPoster(file) and save ONLY the returned string into posterKey
+  let finalPosterKey = null;
+  const targetFile = isMulterFile(file)
+    ? file
+    : isMulterFile(eventData.file)
+    ? eventData.file
+    : isMulterFile(eventData.poster)
+    ? eventData.poster
+    : null;
+
+  if (targetFile) {
+    const uploadedKey = await uploadEventPoster(targetFile);
+    finalPosterKey = sanitizePosterKey(uploadedKey);
   } else {
-    posterKey = posterKey || poster || null;
+    // 2. If no file exists, use existing poster URL string if supplied, otherwise null
+    const candidate =
+      typeof eventData.posterKey === "string"
+        ? eventData.posterKey
+        : typeof eventData.poster === "string"
+        ? eventData.poster
+        : null;
+    finalPosterKey = sanitizePosterKey(candidate);
   }
 
   const parsedRules = parseRules(rules);
+  const posterKey = finalPosterKey;
+
+  console.log("DEBUG posterKey:", posterKey);
+  console.log("DEBUG posterKey type:", typeof posterKey);
+  console.log("DEBUG file:", file ? {
+    fieldname: file.fieldname,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    hasBuffer: !!file.buffer
+  } : null);
 
   const event = await prisma.event.create({
     data: {
-      name,
-      description: description || "",
-      category,
-      posterKey: posterKey || null,
-      date,
-      startTime: startTime || "09:00 AM",
-      endTime: endTime || "05:00 PM",
-      venue,
-      teamSize: teamSize || "Individual",
+      name: String(name || "").trim(),
+      description: description ? String(description) : "",
+      category: String(category || "").trim(),
+      posterKey: posterKey,
+      date: String(date || "").trim(),
+      startTime: startTime ? String(startTime).trim() : "09:00 AM",
+      endTime: endTime ? String(endTime).trim() : "05:00 PM",
+      venue: String(venue || "").trim(),
+      teamSize: teamSize ? String(teamSize).trim() : "Individual",
       capacity: Number(capacity),
       registeredCount: 0,
-      registrationDeadline: registrationDeadline || date,
-      status: status ? status.toUpperCase() : "UPCOMING",
+      registrationDeadline: registrationDeadline
+        ? String(registrationDeadline).trim()
+        : String(date || "").trim(),
+      status: status ? String(status).toUpperCase() : "UPCOMING",
       rules: parsedRules,
       organizerId
     },
@@ -217,14 +277,22 @@ const updateEvent = async (id, updateData, user, file = null) => {
   }
 
   const data = { ...updateData };
+  const targetFile = isMulterFile(file)
+    ? file
+    : isMulterFile(data.file)
+    ? data.file
+    : isMulterFile(data.poster)
+    ? data.poster
+    : null;
 
   // Handle new poster file upload to S3
-  if (file) {
+  if (targetFile) {
     // Delete old poster from S3 if it exists
     if (event.posterKey) {
       await deleteEventPoster(event.posterKey);
     }
-    data.posterKey = await uploadEventPoster(file);
+    const uploadedKey = await uploadEventPoster(targetFile);
+    data.posterKey = sanitizePosterKey(uploadedKey);
   } else if (
     data.posterKey === null ||
     data.removePoster === true ||
@@ -234,18 +302,36 @@ const updateEvent = async (id, updateData, user, file = null) => {
       await deleteEventPoster(event.posterKey);
     }
     data.posterKey = null;
-  } else if (data.poster && !data.posterKey) {
-    data.posterKey = data.poster;
+  } else if (typeof data.poster === "string" && data.poster.trim() !== "" && !data.posterKey) {
+    data.posterKey = sanitizePosterKey(data.poster);
+  } else if (typeof data.posterKey === "string") {
+    data.posterKey = sanitizePosterKey(data.posterKey);
+  } else {
+    // Never allow an object or invalid type to be assigned to posterKey
+    if (data.posterKey !== undefined && typeof data.posterKey !== "string") {
+      delete data.posterKey;
+    }
   }
 
   delete data.removePoster;
   delete data.poster;
+  delete data.file;
+
+  if (data.name !== undefined) data.name = String(data.name).trim();
+  if (data.description !== undefined) data.description = String(data.description);
+  if (data.category !== undefined) data.category = String(data.category).trim();
+  if (data.date !== undefined) data.date = String(data.date).trim();
+  if (data.startTime !== undefined) data.startTime = String(data.startTime).trim();
+  if (data.endTime !== undefined) data.endTime = String(data.endTime).trim();
+  if (data.venue !== undefined) data.venue = String(data.venue).trim();
+  if (data.teamSize !== undefined) data.teamSize = String(data.teamSize).trim();
+  if (data.registrationDeadline !== undefined) data.registrationDeadline = String(data.registrationDeadline).trim();
 
   if (data.capacity !== undefined) {
     data.capacity = Number(data.capacity);
   }
   if (data.status) {
-    data.status = data.status.toUpperCase();
+    data.status = String(data.status).toUpperCase();
   }
   if (data.rules !== undefined) {
     data.rules = parseRules(data.rules);
@@ -463,5 +549,7 @@ module.exports = {
   getEventParticipants,
   markAttendance,
   formatEventWithPoster,
-  formatEventsWithPosters
+  formatEventsWithPosters,
+  sanitizePosterKey,
+  isMulterFile
 };

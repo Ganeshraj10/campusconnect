@@ -29,6 +29,14 @@ const getEventById = async (req, res, next) => {
 
 const createEvent = async (req, res, next) => {
   try {
+    console.log("DEBUG req.file:", req.file ? {
+      fieldname: req.file.fieldname,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      hasBuffer: !!req.file.buffer
+    } : null);
+
     const event = await eventService.createEvent(req.body, req.user.id, req.file);
     res.status(201).json({
       success: true,

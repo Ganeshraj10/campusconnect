@@ -12,7 +12,9 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Upload,
+  X
 } from "lucide-react";
 
 export default function CreateEventPage() {
@@ -36,6 +38,8 @@ export default function CreateEventPage() {
       "All team members must carry valid college identity cards.\nReport to the venue 15 minutes prior to start time.\nDecisions of the faculty coordinators will be final."
   });
 
+  const [posterFile, setPosterFile] = useState(null);
+  const [posterPreview, setPosterPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -43,6 +47,42 @@ export default function CreateEventPage() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Accept only JPEG, PNG, WebP
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      setError("Invalid file type. Please select a JPEG, PNG, or WebP image.");
+      e.target.value = "";
+      return;
+    }
+
+    // Maximum file size: 5 MB
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setError("File size exceeds 5 MB limit. Please select a smaller image.");
+      e.target.value = "";
+      return;
+    }
+
+    setError("");
+    setPosterFile(file);
+    const previewUrl = URL.createObjectURL(file);
+    setPosterPreview(previewUrl);
+  };
+
+  const handleRemoveFile = () => {
+    setPosterFile(null);
+    if (posterPreview) {
+      URL.revokeObjectURL(posterPreview);
+      setPosterPreview(null);
+    }
+    const fileInput = document.getElementById("poster-file-input");
+    if (fileInput) fileInput.value = "";
   };
 
   const handleSubmit = async (e) => {
@@ -62,10 +102,33 @@ export default function CreateEventPage() {
         .map((r) => r.trim())
         .filter((r) => r.length > 0);
 
-      await eventService.createEvent({
-        ...formData,
-        rules
-      });
+      if (posterFile) {
+        // When local file is selected: construct FormData
+        const formPayload = new FormData();
+        formPayload.append("name", formData.name.trim());
+        formPayload.append("description", formData.description || "");
+        formPayload.append("category", formData.category);
+        formPayload.append("organizer", formData.organizer);
+        formPayload.append("date", formData.date);
+        formPayload.append("startTime", formData.startTime || "09:30 AM");
+        formPayload.append("endTime", formData.endTime || "04:30 PM");
+        formPayload.append("venue", formData.venue.trim());
+        formPayload.append("teamSize", formData.teamSize);
+        formPayload.append("capacity", formData.capacity);
+        if (formData.registrationDeadline) {
+          formPayload.append("registrationDeadline", formData.registrationDeadline);
+        }
+        formPayload.append("rules", JSON.stringify(rules));
+        formPayload.append("poster", posterFile); // exact field name "poster"
+
+        await eventService.createEvent(formPayload);
+      } else {
+        // When no local file is selected: preserve existing URL behavior
+        await eventService.createEvent({
+          ...formData,
+          rules
+        });
+      }
 
       setSuccess(true);
       setTimeout(() => {
@@ -185,35 +248,112 @@ export default function CreateEventPage() {
               />
             </div>
 
-            {/* Poster Selector */}
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-slate-700">
-                Poster Image Preset or URL
-              </label>
-              <input
-                type="url"
-                name="poster"
-                value={formData.poster}
-                onChange={handleChange}
-                placeholder="https://..."
-                className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-              />
-              <div className="flex items-center gap-2 overflow-x-auto py-1">
-                <span className="text-[11px] text-slate-500 font-medium shrink-0">
-                  Sample Presets:
+            {/* Poster Selector (Local Upload or URL / Presets) */}
+            <div className="space-y-3 bg-slate-50/70 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Event Poster
+                </label>
+                <span className="text-[11px] text-slate-500">
+                  Upload local image or select preset / enter URL
                 </span>
-                {SAMPLE_POSTERS.map((p, idx) => (
+              </div>
+
+              {/* Local File Upload Input */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Upload Image File (JPEG, PNG, WebP &bull; Max 5 MB)
+                </label>
+                <input
+                  type="file"
+                  id="poster-file-input"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleFileChange}
+                  className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-300 rounded-lg cursor-pointer bg-white p-1 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Selected File Details & Clear Action */}
+              {posterFile && (
+                <div className="flex items-center justify-between p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg text-xs">
+                  <div className="flex items-center gap-2 truncate">
+                    <ImageIcon className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="font-medium text-blue-900 truncate">
+                      Selected file: {posterFile.name} ({(posterFile.size / (1024 * 1024)).toFixed(2)} MB)
+                    </span>
+                  </div>
                   <button
-                    key={idx}
                     type="button"
-                    onClick={() => setFormData({ ...formData, poster: p })}
-                    className={`w-12 h-8 rounded border overflow-hidden shrink-0 transition ${
-                      formData.poster === p ? "ring-2 ring-blue-600 scale-105" : "opacity-70 hover:opacity-100"
-                    }`}
+                    onClick={handleRemoveFile}
+                    className="text-xs text-rose-600 hover:text-rose-800 font-semibold ml-2 shrink-0 flex items-center gap-1"
                   >
-                    <img src={p} alt="Preset" className="w-full h-full object-cover" />
+                    <X className="w-3.5 h-3.5" />
+                    <span>Clear file</span>
                   </button>
-                ))}
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink mx-2 text-[10px] uppercase font-semibold text-slate-400">
+                  {posterFile ? "Using uploaded image file above" : "Or use image URL / Presets"}
+                </span>
+                <div className="flex-grow border-t border-slate-200"></div>
+              </div>
+
+              {/* Poster URL and Presets */}
+              <div className={`space-y-2 ${posterFile ? "opacity-50 pointer-events-none" : ""}`}>
+                <input
+                  type="url"
+                  name="poster"
+                  value={formData.poster}
+                  onChange={handleChange}
+                  placeholder="https://images.unsplash.com/..."
+                  disabled={Boolean(posterFile)}
+                  className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
+                />
+                <div className="flex items-center gap-2 overflow-x-auto py-1">
+                  <span className="text-[11px] text-slate-500 font-medium shrink-0">
+                    Sample Presets:
+                  </span>
+                  {SAMPLE_POSTERS.map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={Boolean(posterFile)}
+                      onClick={() => setFormData({ ...formData, poster: p })}
+                      className={`w-12 h-8 rounded border overflow-hidden shrink-0 transition ${
+                        formData.poster === p && !posterFile
+                          ? "ring-2 ring-blue-600 scale-105"
+                          : "opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      <img src={p} alt="Preset" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Poster Preview */}
+              <div className="mt-2 pt-2 border-t border-slate-200">
+                <span className="text-[11px] font-medium text-slate-500 block mb-1.5">
+                  Poster Preview:
+                </span>
+                <div className="relative w-full h-36 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">
+                  <img
+                    src={posterPreview || formData.poster}
+                    alt="Poster Preview"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.src =
+                        "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=800&q=80";
+                    }}
+                  />
+                  <div className="absolute bottom-2 left-2 bg-slate-900/70 backdrop-blur-xs text-white text-[10px] px-2 py-0.5 rounded font-medium">
+                    {posterFile ? "Local File Upload" : "Remote URL / Preset"}
+                  </div>
+                </div>
               </div>
             </div>
 

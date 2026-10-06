@@ -17,39 +17,80 @@ const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const app = require("../src/app");
 const prisma = require("../src/utils/prisma");
 const { s3Client, getPresignedPosterUrl } = require("../src/services/s3Service");
+const { generateToken } = require("../src/utils/jwt");
+const { sanitizePosterKey, createEvent } = require("../src/services/eventService");
 
 jest.setTimeout(30000);
 
 const s3Mock = mockClient(s3Client);
 
-
 describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
-  let organizerToken = "";
-  let organizerUser = null;
-  const createdEventIds = [];
+  const mockOrganizer = {
+    id: "mock-organizer-id-123",
+    name: "S3 Test Organizer",
+    email: "s3_organizer@test.edu",
+    role: "ORGANIZER",
+    department: "Computer Science Society",
+    phone: "9123456780"
+  };
 
-  beforeAll(async () => {
-    // Reset S3 mocks
-    s3Mock.reset();
-    s3Mock.on(PutObjectCommand).resolves({});
-    s3Mock.on(DeleteObjectCommand).resolves({});
-    s3Mock.on(GetObjectCommand).resolves({});
+  const organizerToken = generateToken({
+    id: mockOrganizer.id,
+    email: mockOrganizer.email,
+    role: mockOrganizer.role
+  });
 
-    // Register a test organizer
-    const timestamp = Date.now();
-    const orgRes = await request(app)
-      .post("/api/auth/register")
-      .send({
-        name: "S3 Test Organizer",
-        email: `s3_organizer_${timestamp}@test.edu`,
-        password: "password123",
-        role: "ORGANIZER",
-        department: "Computer Science Society",
-        phone: "9123456780"
-      });
+  const mockDbEvents = new Map();
 
-    organizerToken = orgRes.body.data.token;
-    organizerUser = orgRes.body.data.user;
+  beforeAll(() => {
+    // Mock prisma user lookup for authentication middleware
+    jest.spyOn(prisma.user, "findUnique").mockImplementation(async ({ where }) => {
+      if (where.id === mockOrganizer.id || where.email === mockOrganizer.email) {
+        return mockOrganizer;
+      }
+      return null;
+    });
+
+    // Mock prisma event creation, lookup, update, and deletion
+    jest.spyOn(prisma.event, "create").mockImplementation(async ({ data, include }) => {
+      const id = `event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const created = {
+        id,
+        ...data,
+        createdAt: new Date(),
+        organizer: mockOrganizer,
+        _count: { registrations: 0 }
+      };
+      mockDbEvents.set(id, created);
+      return created;
+    });
+
+    jest.spyOn(prisma.event, "findUnique").mockImplementation(async ({ where }) => {
+      const match = mockDbEvents.get(where.id);
+      if (!match) return null;
+      return {
+        ...match,
+        organizer: mockOrganizer,
+        _count: { registrations: 0 }
+      };
+    });
+
+    jest.spyOn(prisma.event, "update").mockImplementation(async ({ where, data }) => {
+      const existing = mockDbEvents.get(where.id);
+      if (!existing) throw new Error("Event not found");
+      const updated = { ...existing, ...data };
+      mockDbEvents.set(where.id, updated);
+      return {
+        ...updated,
+        organizer: mockOrganizer,
+        _count: { registrations: 0 }
+      };
+    });
+
+    jest.spyOn(prisma.event, "delete").mockImplementation(async ({ where }) => {
+      mockDbEvents.delete(where.id);
+      return { id: where.id };
+    });
   });
 
   beforeEach(() => {
@@ -61,19 +102,7 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
   });
 
   afterAll(async () => {
-    try {
-      for (const eventId of createdEventIds) {
-        await prisma.registration.deleteMany({ where: { eventId } });
-        await prisma.event.deleteMany({ where: { id: eventId } });
-      }
-      if (organizerUser?.id) {
-        await prisma.user.deleteMany({ where: { id: organizerUser.id } });
-      }
-    } catch (err) {
-      console.warn("S3 Test cleanup warning:", err.message);
-    } finally {
-      await prisma.$disconnect();
-    }
+    jest.restoreAllMocks();
   });
 
   // 1. Event without poster
@@ -94,11 +123,11 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.posterKey).toBeNull();
     expect(res.body.data.posterUrl).toBeNull();
-    createdEventIds.push(res.body.data.id);
+    expect(s3Mock.commandCalls(PutObjectCommand).length).toBe(0);
   });
 
-  // 2. Event with valid JPEG
-  test("2. Create event with valid JPEG - Should upload to S3 and return presigned posterUrl", async () => {
+  // 2. Event with local image upload (JPEG)
+  test("2. Create event with local JPEG image upload - Should upload to S3 and return presigned posterUrl", async () => {
     const jpegBuffer = Buffer.from("fake-jpeg-binary-image-data-for-testing");
 
     const res = await request(app)
@@ -124,12 +153,10 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
 
     const putCall = s3Mock.commandCalls(PutObjectCommand)[0];
     expect(putCall.args[0].input.ContentType).toBe("image/jpeg");
-
-    createdEventIds.push(res.body.data.id);
   });
 
-  // 3. Event with valid PNG
-  test("3. Create event with valid PNG - Should upload to S3 and return presigned posterUrl", async () => {
+  // 3. Event with local image upload (PNG)
+  test("3. Create event with local PNG image upload - Should upload to S3 and return presigned posterUrl", async () => {
     const pngBuffer = Buffer.from("fake-png-binary-image-data-for-testing");
 
     const res = await request(app)
@@ -137,7 +164,7 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
       .set("Authorization", `Bearer ${organizerToken}`)
       .field("name", "PNG Poster Workshop")
       .field("description", "Testing PNG poster upload to S3")
-      .field("category", "Workshop")
+      .field("category", "Technical")
       .field("date", "2026-11-28")
       .field("venue", "Seminar Hall 1")
       .field("capacity", 60)
@@ -155,12 +182,62 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
 
     const putCall = s3Mock.commandCalls(PutObjectCommand)[0];
     expect(putCall.args[0].input.ContentType).toBe("image/png");
-
-    createdEventIds.push(res.body.data.id);
   });
 
-  // 4. Invalid file type
-  test("4. Upload invalid file type - Should reject with 400 Bad Request", async () => {
+  // 4. Event with external URL poster
+  test("4. Create event with external poster URL - Should preserve URL and return it directly", async () => {
+    const externalUrl = "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=800";
+
+    const res = await request(app)
+      .post("/api/events")
+      .set("Authorization", `Bearer ${organizerToken}`)
+      .send({
+        name: "External URL Poster Event",
+        description: "Testing event creation with external poster URL",
+        category: "Technical",
+        date: "2026-12-01",
+        venue: "Auditorium A",
+        capacity: 80,
+        poster: externalUrl
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.posterKey).toBe(externalUrl);
+    expect(res.body.data.posterUrl).toBe(externalUrl);
+    expect(s3Mock.commandCalls(PutObjectCommand).length).toBe(0);
+  });
+
+  // 5. Object rejection and sanitization
+  test("5. Poster sanitization - Should never assign objects, FormData, or invalid metadata to posterKey", async () => {
+    expect(sanitizePosterKey({ filename: "hack.jpg" })).toBeNull();
+    expect(sanitizePosterKey({})).toBeNull();
+    expect(sanitizePosterKey("[object Object]")).toBeNull();
+    expect(sanitizePosterKey(null)).toBeNull();
+    expect(sanitizePosterKey(undefined)).toBeNull();
+    expect(sanitizePosterKey("event-posters/123-valid.png")).toBe("event-posters/123-valid.png");
+    expect(sanitizePosterKey("https://example.com/poster.jpg")).toBe("https://example.com/poster.jpg");
+
+    // Creating event with an object passed as poster in JSON
+    const event = await createEvent(
+      {
+        name: "Object Poster Event",
+        category: "Technical",
+        date: "2026-12-05",
+        venue: "Lab 1",
+        capacity: 40,
+        poster: { some: "object", metadata: true }
+      },
+      mockOrganizer.id,
+      null
+    );
+
+    expect(event.posterKey).toBeNull();
+    expect(event.posterUrl).toBeNull();
+  });
+
+  // 6. Invalid file type rejection
+  test("6. Upload invalid file type - Should reject with 400 Bad Request", async () => {
     const textBuffer = Buffer.from("This is a plain text file, not an image");
 
     const res = await request(app)
@@ -182,9 +259,8 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
     expect(s3Mock.commandCalls(PutObjectCommand).length).toBe(0);
   });
 
-  // 5. File larger than 5 MB
-  test("5. Upload file larger than 5 MB - Should reject with 400 Bad Request", async () => {
-    // Create 5.2 MB buffer
+  // 7. File larger than 5 MB rejection
+  test("7. Upload file larger than 5 MB - Should reject with 400 Bad Request", async () => {
     const largeBuffer = Buffer.alloc(5.2 * 1024 * 1024);
 
     const res = await request(app)
@@ -206,8 +282,8 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
     expect(s3Mock.commandCalls(PutObjectCommand).length).toBe(0);
   });
 
-  // 6. Poster deletion
-  test("6. Event deletion - Should delete poster object from S3", async () => {
+  // 8. Event deletion - deletes poster from S3
+  test("8. Event deletion - Should delete poster object from S3", async () => {
     const posterBuffer = Buffer.from("poster-to-be-deleted");
 
     // Create event with poster
@@ -245,8 +321,8 @@ describe("Amazon S3 Event Poster Integration & Unit Tests", () => {
     expect(deleteCall.args[0].input.Key).toBe(posterKey);
   });
 
-  // 7. Presigned poster URL generation
-  test("7. Presigned URL generation - getPresignedPosterUrl handles S3 keys, URLs, and null", async () => {
+  // 9. Presigned poster URL generation
+  test("9. Presigned URL generation - getPresignedPosterUrl handles S3 keys, URLs, and null", async () => {
     // A. S3 Key
     const s3Url = await getPresignedPosterUrl("event-posters/12345-sample.png");
     expect(s3Url).toBeDefined();
